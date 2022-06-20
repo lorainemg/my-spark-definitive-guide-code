@@ -194,7 +194,7 @@ df.select(*selectedColumns).where(expr("is_white OR is_red"))\
 # ----------------------------- Working with Dates and Timestamps ----------------------------- 
 
 # COMMAND ----------
-
+# Get current date and current timestamp
 from pyspark.sql.functions import current_date, current_timestamp
 dateDF = spark.range(10)\
   .withColumn("today", current_date())\
@@ -203,13 +203,13 @@ dateDF.createOrReplaceTempView("dateTable")
 
 
 # COMMAND ----------
-
+# Add five dates from now
 from pyspark.sql.functions import date_add, date_sub
 dateDF.select(date_sub(col("today"), 5), date_add(col("today"), 5)).show(1)
 
 
 # COMMAND ----------
-
+# Comparing two dates
 from pyspark.sql.functions import datediff, months_between, to_date
 dateDF.withColumn("week_ago", date_sub(col("today"), 7))\
   .select(datediff(col("week_ago"), col("today"))).show(1)
@@ -221,14 +221,17 @@ dateDF.select(
 
 
 # COMMAND ----------
-
+# to_date function allows you to convert a string to a date
 from pyspark.sql.functions import to_date, lit
 spark.range(5).withColumn("date", lit("2017-01-01"))\
   .select(to_date(col("date"))).show(1)
 
+# COMMAND ----------
+# Spark will not throw an error if cannot parse a date, rather, it will just return null
+dateDF.select(to_date(lit("2016-20-12")),to_date(lit("2017-12-11"))).show(1)
 
 # COMMAND ----------
-
+# Fix error of the command above, specifying a new function
 from pyspark.sql.functions import to_date
 dateFormat = "yyyy-dd-MM"
 cleanDateDF = spark.range(1).select(
@@ -238,71 +241,86 @@ cleanDateDF.createOrReplaceTempView("dateTable2")
 
 
 # COMMAND ----------
-
+# to_timestamp always requires a format to be specified
 from pyspark.sql.functions import to_timestamp
 cleanDateDF.select(to_timestamp(col("date"), dateFormat)).show()
 
 
-# COMMAND ----------
+# ----------------------------- Working with Nulls in Data ----------------------------- 
 
+
+# COMMAND ----------
+# Coalesce function allows you to select the first non-null valure from a set of columns
 from pyspark.sql.functions import coalesce
 df.select(coalesce(col("Description"), col("CustomerId"))).show()
 
 
 # COMMAND ----------
-
+# 'any' drops a row if any of the values are null, all if all the values are null or nan
+# we can also appy this to certain sets of columns by passing in an array of columns
 df.na.drop("all", subset=["StockCode", "InvoiceNo"])
 
 
 # COMMAND ----------
-
+# Filling columns wit value all
 df.na.fill("all", subset=["StockCode", "InvoiceNo"])
 
 
 # COMMAND ----------
-
+# we can fill values with a map (dictionary)
 fill_cols_vals = {"StockCode": 5, "Description" : "No Value"}
 df.na.fill(fill_cols_vals)
 
 
 # COMMAND ----------
-
+# replace all values in a certain column according to their current value
 df.na.replace([""], ["UNKNOWN"], "Description")
 
 
-# COMMAND ----------
+# ----------------------------- Working with Complex Types ----------------------------- 
 
+# COMMAND ----------
+# we can create a struct by wrapping a set of columns in parenthesis in a query
 from pyspark.sql.functions import struct
 complexDF = df.select(struct("Description", "InvoiceNo").alias("complex"))
 complexDF.createOrReplaceTempView("complexDF")
 
+# COMMAND ----------
+# We now have a DataFrame with a column complex
+complexDF.select("complex.Description")
+complexDF.select(col("complex").getField("Description"))
 
 # COMMAND ----------
+# Querying all values in the struct
+complexDF.select("complex.*")
 
+# COMMAND ----------
+# take every word in the description table and show it
 from pyspark.sql.functions import split
 df.select(split(col("Description"), " ")).show(2)
 
 
 # COMMAND ----------
-
+# we can quwery the values of the array using Python-like syntax
 df.select(split(col("Description"), " ").alias("array_col"))\
   .selectExpr("array_col[0]").show(2)
 
 
 # COMMAND ----------
-
+# we can determine the array's length by querying for its size
 from pyspark.sql.functions import size
 df.select(size(split(col("Description"), " "))).show(2) # shows 5 and 3
 
 
 # COMMAND ----------
-
+# We can also see whether this array contains a value
 from pyspark.sql.functions import array_contains
 df.select(array_contains(split(col("Description"), " "), "WHITE")).show(2)
 
 
 # COMMAND ----------
-
+# The explode function takes a column that consists of arrays and creates one row (with
+# the rest of the values duplicated) per value in the array
 from pyspark.sql.functions import split, explode
 
 df.withColumn("splitted", split(col("Description"), " "))\
@@ -311,32 +329,35 @@ df.withColumn("splitted", split(col("Description"), " "))\
 
 
 # COMMAND ----------
-
+# Maps are created by using the map function, and key-value pairs of columns
+# You can select them just like you might select from an array
 from pyspark.sql.functions import create_map
 df.select(create_map(col("Description"), col("InvoiceNo")).alias("complex_map"))\
   .show(2)
 
 
 # COMMAND ----------
-
+# We can query them by using a proper key. A missing key returns null
 df.select(map(col("Description"), col("InvoiceNo")).alias("complex_map"))\
   .selectExpr("complex_map['WHITE METAL LANTERN']").show(2)
 
 
 # COMMAND ----------
-
+# We can also explode map types, which will turn them into columns
 df.select(map(col("Description"), col("InvoiceNo")).alias("complex_map"))\
   .selectExpr("explode(complex_map)").show(2)
 
 
 # COMMAND ----------
-
+# Spark has some unique support for working with JSON data. You can operate directly
+# on strings of JSON in Spark and parse from JSON or extract JSON objects.
 jsonDF = spark.range(1).selectExpr("""
   '{"myJSONKey" : {"myJSONValue" : [1, 2, 3]}}' as jsonString""")
 
 
 # COMMAND ----------
-
+# You can use the get_json_object to inline query a JSON object, be it a dictionary 
+# or array. You can use json_tuple if this object has only one level of nesting
 from pyspark.sql.functions import get_json_object, json_tuple
 
 jsonDF.select(
@@ -345,14 +366,16 @@ jsonDF.select(
 
 
 # COMMAND ----------
-
+# You can also turn a StructType into a JSON string by using the to_json function
 from pyspark.sql.functions import to_json
 df.selectExpr("(InvoiceNo, Description) as myStruct")\
   .select(to_json(col("myStruct")))
 
 
 # COMMAND ----------
-
+# This function also accepts a dictionary (map) of parameters that are the same as the JSON data
+# source. You can use the from_json function to parse this (or other JSON data) back in. This
+# naturally requires you to specify a schema, and optionally you can specify a map of options as well.
 from pyspark.sql.functions import from_json
 from pyspark.sql.types import *
 parseSchema = StructType((
@@ -363,8 +386,11 @@ df.selectExpr("(InvoiceNo, Description) as myStruct")\
   .select(from_json(col("newJSON"), parseSchema), col("newJSON")).show(2)
 
 
-# COMMAND ----------
+# ----------------------------- User-Defined Functions ----------------------------- 
 
+
+# COMMAND ----------
+# create an UDF, pass that into Spark and then execute code using that UDF
 udfExampleDF = spark.range(5).toDF("num")
 def power3(double_value):
   return double_value ** 3
@@ -372,25 +398,28 @@ power3(2.0)
 
 
 # COMMAND ----------
-
+# we need to register the function
 from pyspark.sql.functions import udf
 power3udf = udf(power3)
 
 
 # COMMAND ----------
-
+# then, we use it in our DataFrame code
 from pyspark.sql.functions import col
 udfExampleDF.select(power3udf(col("num"))).show(2)
 
 
 # COMMAND ----------
-
+# We can also use it as a SQL expression
 udfExampleDF.selectExpr("power3(num)").show(2)
 # registered in Scala
 
 
 # COMMAND ----------
-
+# is recommended to specify the return type of the UDF function
+# If you specify the type that doesn’t align with the actual type returned by the function, Spark will
+# not throw an error but will just return null to designate a failure.
+# This wont convert them into float, therefore, we see null
 from pyspark.sql.types import IntegerType, DoubleType
 spark.udf.register("power3py", power3, DoubleType())
 
